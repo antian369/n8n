@@ -35,43 +35,176 @@ export class Proxima implements INodeType {
         ],
         properties: [
             {
-                displayName: 'ID',
-                name: 'id',
-                type: 'string',
-                required: true,
-                default: '',
-                description: 'ID',
-            },
-            {
-                displayName: '字段',
-                name: 'field',
+                displayName: '对象',
+                name: 'opsObject',
                 type: 'options',
                 options: [
                     {
-                        name: '名称',
-                        value: 'name',
+                        name: '卡片',
+                        value: 'card',
+                    },
+                    {
+                        name: '工作流',
+                        value: 'bpmn',
+                    },
+                    {
+                        name: '其它',
+                        value: 'other',
                     },
                 ],
-                default: 'name',
+                default: 'card',
                 required: true,
-                description: '某一个字段',
+                description: '操作对象',
             },
+            // 卡片操作，选择卡片时显示
             {
-                displayName: '值',
-                name: 'fieldValue',
-                type: 'string',
+                displayName: '操作',
+                name: 'cardOps',
+                type: 'options',
+				displayOptions: {
+					show: {
+						opsObject: [
+							'card',
+						],
+					},
+				},
+                options: [
+                    {
+                        name: '更新字段',
+                        value: 'update',
+                    },
+                    {
+                        name: '创建卡片',
+                        value: 'create',
+                    },
+                    {
+                        name: '创建子卡片',
+                        value: 'createChild',
+                    },
+                ],
+                default: 'update',
                 required: true,
+                description: '卡片操作',
+            },
+            // 工作流操作，选择工作流时显示
+            {
+                displayName: '操作',
+                name: 'bpmnOps',
+                type: 'options',
+				displayOptions: {
+					show: {
+						opsObject: [
+							'bpmn',
+						],
+					},
+				},
+                options: [
+                    {
+                        name: '推进工作流',
+                        value: 'next',
+                    },
+                    {
+                        name: '创建工作流',
+                        value: 'create',
+                    },
+                    {
+                        name: '更新工作流字段',
+                        value: 'update',
+                    },
+                ],
+                default: 'next',
+                required: true,
+                description: '工作流操作',
+            },
+            // 其它操作，选择其它时显示
+            {
+                displayName: '操作',
+                name: 'otherOps',
+                type: 'options',
+				displayOptions: {
+					show: {
+						opsObject: [
+							'other',
+						],
+					},
+				},
+                options: [
+                    {
+                        name: '发送邮件',
+                        value: 'sendMail',
+                    },
+                ],
+                default: 'sendMail',
+                required: true,
+                description: '其它操作',
+            },
+            //卡片操作：更新字段、创建子卡片时显示
+            {
+                displayName: 'ID',
+                name: 'id',
+                type: 'string',
+				displayOptions: {
+					show: {
+						opsObject: [
+							'card',
+						],
+                        cardOps: [
+                            'update', 'createChild'
+                        ]
+					},
+				},
                 default: '',
-                description: '字段的值',
-            }
+                description: 'ID',
+            },
+			{
+				displayName: '卡片字段',
+				name: 'cardFieldList',
+				placeholder: '添加字段',
+				type: 'fixedCollection',
+				typeOptions: {
+					multipleValues: true,
+				},
+				displayOptions: {
+					show: {
+						opsObject: [
+							'card',
+						],
+                        cardOps: [
+                            'update',
+                        ]
+					},
+				},
+				description: '添加字段',
+				default: {},
+				options: [
+					{
+						name: 'field',
+						displayName: '字段',
+						values: [
+							{
+								displayName: 'Name',
+								name: 'name',
+								type: 'string',
+								default: '',
+								description: '字段名',
+							},
+							{
+								displayName: 'Value',
+								name: 'value',
+								type: 'string',
+								default: '',
+								description: '字段值',
+							},
+						],
+					},
+				],
+			},
         ],
     };
 
     async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
         let responseData;
         const id = this.getNodeParameter('id', 0) as string;
-        const field = this.getNodeParameter('field', 0) as string;
-        const fieldValue = this.getNodeParameter('fieldValue', 0) as string;
         //Get credentials the user provided for this node
         const credentials = this.getCredentials('proximaApi') as IDataObject;
 
@@ -92,31 +225,36 @@ export class Proxima implements INodeType {
             uri: '',
             json: true,
         }
-        if (baseOption.headers) {
-            baseOption.headers[credentials.tokenKey as string] = credentials.tokenValue
-        }
+        baseOption.headers![credentials.tokenKey as string] = credentials.tokenValue
+        // if (baseOption.headers) {
+        //     baseOption.headers[credentials.tokenKey as string] = credentials.tokenValue
+        // }
         const baseUrl = credentials.baseUrl
-
 
 
         try {
             // 1.查询卡片数据
             const uri = `${baseUrl}/parse/classes/Item/${id}`
             const getOptions: OptionsWithUri = Object.assign({}, baseOption, { uri })
-            console.debug('get item options:', getOptions)
 
             let item = await this.helpers.request(getOptions);
             console.debug(`item : ${id} `, item)
 
             // 2.更新卡片数据
-            item.name = fieldValue
+			const cardFieldList = this.getNodeParameter('cardFieldList', 0) as IDataObject;
+            console.info('cardFieldList:', cardFieldList)
+            if (cardFieldList.field !== undefined) {
+                for (const fieldData of cardFieldList!.field as IDataObject[]) {
+                    item[fieldData!.name as string] = fieldData!.value
+                }
+            }
 
             const putOptions: OptionsWithUri = Object.assign({}, baseOption, {
                 method: 'PUT',
                 body: item,
                 uri,
             });
-            console.debug('put item options:', getOptions)
+            console.info('put item options:', getOptions)
 
             responseData = await this.helpers.request(putOptions);
 
