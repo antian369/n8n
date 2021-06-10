@@ -4,7 +4,9 @@ import {
 
 import {
     IDataObject,
+    ILoadOptionsFunctions,
     INodeExecutionData,
+    INodePropertyOptions,
     INodeType,
     INodeTypeDescription,
 } from 'n8n-workflow';
@@ -61,13 +63,13 @@ export class Proxima implements INodeType {
                 displayName: '操作',
                 name: 'cardOps',
                 type: 'options',
-				displayOptions: {
-					show: {
-						opsObject: [
-							'card',
-						],
-					},
-				},
+                displayOptions: {
+                    show: {
+                        opsObject: [
+                            'card',
+                        ],
+                    },
+                },
                 options: [
                     {
                         name: '更新字段',
@@ -91,13 +93,13 @@ export class Proxima implements INodeType {
                 displayName: '操作',
                 name: 'bpmnOps',
                 type: 'options',
-				displayOptions: {
-					show: {
-						opsObject: [
-							'bpmn',
-						],
-					},
-				},
+                displayOptions: {
+                    show: {
+                        opsObject: [
+                            'bpmn',
+                        ],
+                    },
+                },
                 options: [
                     {
                         name: '推进工作流',
@@ -121,13 +123,13 @@ export class Proxima implements INodeType {
                 displayName: '操作',
                 name: 'otherOps',
                 type: 'options',
-				displayOptions: {
-					show: {
-						opsObject: [
-							'other',
-						],
-					},
-				},
+                displayOptions: {
+                    show: {
+                        opsObject: [
+                            'other',
+                        ],
+                    },
+                },
                 options: [
                     {
                         name: '发送邮件',
@@ -143,64 +145,94 @@ export class Proxima implements INodeType {
                 displayName: 'ID',
                 name: 'id',
                 type: 'string',
-				displayOptions: {
-					show: {
-						opsObject: [
-							'card',
-						],
+                displayOptions: {
+                    show: {
+                        opsObject: [
+                            'card',
+                        ],
                         cardOps: [
                             'update', 'createChild'
                         ]
-					},
-				},
+                    },
+                },
                 default: '',
                 description: 'ID',
             },
-			{
-				displayName: '卡片字段',
-				name: 'cardFieldList',
-				placeholder: '添加字段',
-				type: 'fixedCollection',
-				typeOptions: {
-					multipleValues: true,
-				},
-				displayOptions: {
-					show: {
-						opsObject: [
-							'card',
-						],
+            {
+                displayName: '卡片字段',
+                name: 'cardFieldList',
+                placeholder: '添加字段',
+                type: 'fixedCollection',
+                typeOptions: {
+                    multipleValues: true,
+                },
+                displayOptions: {
+                    show: {
+                        opsObject: [
+                            'card',
+                        ],
                         cardOps: [
                             'update',
                         ]
-					},
-				},
-				description: '添加字段',
-				default: {},
-				options: [
-					{
-						name: 'field',
-						displayName: '字段',
-						values: [
-							{
-								displayName: 'Name',
-								name: 'name',
-								type: 'string',
-								default: '',
-								description: '字段名',
-							},
-							{
-								displayName: 'Value',
-								name: 'value',
-								type: 'string',
-								default: '',
-								description: '字段值',
-							},
-						],
-					},
-				],
-			},
+                    },
+                },
+                description: '添加字段',
+                default: {},
+                options: [
+                    {
+                        name: 'field',
+                        displayName: '字段',
+                        values: [
+                            {
+                                displayName: 'Name',
+                                name: 'name',
+                                type: 'options',
+                                default: '',
+                                description: '字段名',
+                                typeOptions: {
+                                    loadOptionsMethod: 'getCustomField',
+                                },
+                            },
+                            {
+                                displayName: 'Value',
+                                name: 'value',
+                                type: 'string',
+                                default: '',
+                                description: '字段值',
+                            },
+                        ],
+                    },
+                ],
+            },
         ],
     };
+
+    methods = {
+        loadOptions: {
+            /**
+             * 字段名下拉列表
+             * @param this 
+             * @returns 
+             */
+            async getCustomField(this: ILoadOptionsFunctions): Promise<INodePropertyOptions[]> {
+                const credentials = this.getCredentials('proximaApi') as IDataObject;
+                const option: OptionsWithUri = {
+                    headers: {
+                        'Accept': 'application/json',
+                    },
+                    method: 'POST',
+                    timeout: 30000,
+                    uri: `${credentials.baseUrl}/connector/fields/options`,
+                    json: true,
+                }
+                const responseData = await this.helpers.request!(option);
+                return responseData!.payload!.values!.map((x: any) => ({
+                    'name': x.label,
+                    'value': x.value
+                }));
+            },
+        }
+    }
 
     async execute(this: IExecuteFunctions): Promise<INodeExecutionData[][]> {
         let responseData;
@@ -241,11 +273,26 @@ export class Proxima implements INodeType {
             console.debug(`item : ${id} `, item)
 
             // 2.更新卡片数据
-			const cardFieldList = this.getNodeParameter('cardFieldList', 0) as IDataObject;
+            const cardFieldList = this.getNodeParameter('cardFieldList', 0) as IDataObject;
             console.info('cardFieldList:', cardFieldList)
             if (cardFieldList.field !== undefined) {
                 for (const fieldData of cardFieldList!.field as IDataObject[]) {
-                    item[fieldData!.name as string] = fieldData!.value
+                    // key值按照 . 分割，按层级修改值
+                    let keys = (fieldData!.name as string).split('.')
+                    // 取出最后一层的key
+                    let lastKey = keys.pop()
+                    // 暂存每个层级的值
+                    let itemTemp = item
+                    if (lastKey) {
+                        for (let k of keys) {
+                            // 不存在时创建
+                            if (! itemTemp[k]) {
+                                itemTemp[k] = {}
+                            }
+                            itemTemp = itemTemp[k]
+                        }
+                        itemTemp[lastKey] = fieldData!.value
+                    }
                 }
             }
 
@@ -254,7 +301,7 @@ export class Proxima implements INodeType {
                 body: item,
                 uri,
             });
-            console.info('put item options:', getOptions)
+            console.info('put item options:', putOptions)
 
             responseData = await this.helpers.request(putOptions);
 
